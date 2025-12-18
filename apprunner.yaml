@@ -1,0 +1,19 @@
+version: 1.0
+runtime: docker
+build:
+  commands:
+    build:
+      - echo "Building FastAPI application"
+      - pip install -r requirements.txt
+run:
+  runtime-version: latest
+  command: uvicorn main:app --host 0.0.0.0 --port 8000
+  network:
+    port: 8000
+    env: PORT
+  env:
+    - name: DATABASE_URL
+      value: "postgresql://admin:password@your-db.xxxxx.us-east-1.rds.amazonaws.com:5432/postgres"
+    - name: ALLOWED_ORIGINS
+      value: "https://your-app.amplifyapp.com"
+

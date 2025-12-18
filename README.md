@@ -61,5 +61,14 @@ curl -X DELETE "http://localhost:8000/items/1"
 
 ## Database
 
-The application uses SQLite by default (stored in `app.db`). You can modify `database.py` to use PostgreSQL or other databases.
+This application requires PostgreSQL. You must set the `DATABASE_URL` environment variable:
+
+```bash
+export DATABASE_URL="postgresql://username:password@host:port/database"
+```
+
+Then run the application:
+```bash
+uvicorn main:app --reload
+```
 
