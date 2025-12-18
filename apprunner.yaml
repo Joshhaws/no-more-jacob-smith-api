@@ -14,4 +14,11 @@ run:
       value: "postgresql://jacobsmith:jacobsmithmustgo@ls-b9bba8e36e6871b769e5ec6604833a4a0be3d3fd.c7mq6w6oszcl.us-west-2.rds.amazonaws.com:5432/postgres"
     - name: ALLOWED_ORIGINS
       value: "https://no-more-jacob-smith.com"
-
+    - name: STRAVA_CLIENT_ID
+      value: "YOUR_STRAVA_CLIENT_ID"
+    - name: STRAVA_CLIENT_SECRET
+      value: "YOUR_STRAVA_CLIENT_SECRET"
+    - name: FRONTEND_URL
+      value: "https://no-more-jacob-smith.com"
+    - name: BACKEND_URL
+      value: "https://gqb6m3heg4.us-west-2.awsapprunner.com"
