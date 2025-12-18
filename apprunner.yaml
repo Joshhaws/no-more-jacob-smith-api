@@ -1,0 +1,17 @@
+version: 1.0
+runtime: python3
+build:
+  commands:
+    build:
+      - pip install -r requirements.txt
+run:
+  command: uvicorn main:app --host 0.0.0.0 --port 8000
+  network:
+    port: 8000
+    env: PORT
+  env:
+    - name: DATABASE_URL
+      value: "postgresql://jacobsmith:jacobsmithmustgo@ls-b9bba8e36e6871b769e5ec6604833a4a0be3d3fd.c7mq6w6oszcl.us-west-2.rds.amazonaws.com:5432/postgres"
+    - name: ALLOWED_ORIGINS
+      value: "https://no-more-jacob-smith.com"
+
