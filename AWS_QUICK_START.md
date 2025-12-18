@@ -20,7 +20,7 @@ Complete guide for deploying your FastAPI backend to AWS using Lightsail (databa
 7. **Availability zone**: Choose any zone
 8. Click **Create database**
 9. Wait ~5 minutes for database to be available
-10. Once created, go to **Connectivity & security** tab and note the **Endpoint** (e.g., `strava-segments-db.xxxxx.us-east-1.rds.amazonaws.com`)
+10. Once created, go to **Connectivity & security** tab and note the **Endpoint** (e.g., `strava-segments-db.xxxxx.us-west-2.rds.amazonaws.com`)
 11. Note your **Master username** and **Master password** (you'll need these for the connection string)
 
 ### 2. Enable Public Access (1 min)
@@ -63,7 +63,7 @@ Complete guide for deploying your FastAPI backend to AWS using Lightsail (databa
 ### 4. Get Your API URL (1 min)
 
 1. App Runner service → Copy **Default domain**
-2. Your API: `https://xxxxx.us-east-1.awsapprunner.com`
+2. Your API: `https://xxxxx.us-west-2.awsapprunner.com`
 
 ### 5. Update Amplify (2 min)
 
@@ -72,7 +72,7 @@ Complete guide for deploying your FastAPI backend to AWS using Lightsail (databa
 3. Click **Manage variables**
 4. **Add variable**:
    - **Key**: `VITE_API_URL`
-   - **Value**: `https://xxxxx.us-east-1.awsapprunner.com` (your API URL from Step 4)
+   - **Value**: `https://xxxxx.us-west-2.awsapprunner.com` (your API URL from Step 4)
 5. Click **Save**
 6. Go to **App settings** → **General**
 7. Click **Redeploy this version** to apply the new environment variable
@@ -83,8 +83,8 @@ Complete guide for deploying your FastAPI backend to AWS using Lightsail (databa
 2. Open browser console (F12)
 3. Check for any errors
 4. Verify the table loads with data
-5. **Test API directly**: Visit `https://xxxxx.us-east-1.awsapprunner.com/docs` to see the API docs
-6. **Seed test data** (if needed): Visit `https://xxxxx.us-east-1.awsapprunner.com/seed/` to populate the database
+5. **Test API directly**: Visit `https://xxxxx.us-west-2.awsapprunner.com/docs` to see the API docs
+6. **Seed test data** (if needed): Visit `https://xxxxx.us-west-2.awsapprunner.com/seed/` to populate the database
 
 ## Done! ✅
 
