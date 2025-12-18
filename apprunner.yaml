@@ -13,7 +13,7 @@ run:
     env: PORT
   env:
     - name: DATABASE_URL
-      value: "postgresql://admin:password@your-db.xxxxx.us-east-1.rds.amazonaws.com:5432/postgres"
+      value: "postgresql://jacobsmith:jacobsmithmustgo@ls-b9bba8e36e6871b769e5ec6604833a4a0be3d3fd.c7mq6w6oszcl.us-west-2.rds.amazonaws.com:5432/postgres"
     - name: ALLOWED_ORIGINS
-      value: "https://your-app.amplifyapp.com"
+      value: "https://no-more-jacob-smith.com"
 

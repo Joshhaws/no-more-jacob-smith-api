@@ -27,11 +27,12 @@ echo "✅ AWS CLI is installed and configured"
 echo ""
 
 # Get user input
-read -p "Enter your Amplify app domain (e.g., main.xxxxx.amplifyapp.com): " AMPLIFY_DOMAIN
-read -p "Enter your RDS database endpoint (e.g., your-db.xxxxx.us-east-1.rds.amazonaws.com): " DB_ENDPOINT
-read -p "Enter your RDS database password: " -s DB_PASSWORD
+read -p "Enter your app domain (default: no-more-jacob-smith.com): " AMPLIFY_DOMAIN
+AMPLIFY_DOMAIN=${AMPLIFY_DOMAIN:-no-more-jacob-smith.com}
+read -p "Enter your Lightsail database endpoint (e.g., your-db.xxxxx.us-east-1.rds.amazonaws.com): " DB_ENDPOINT
+read -p "Enter your Lightsail database password: " -s DB_PASSWORD
 echo ""
-read -p "Enter your RDS database username (default: admin): " DB_USERNAME
+read -p "Enter your Lightsail database username (default: admin): " DB_USERNAME
 DB_USERNAME=${DB_USERNAME:-admin}
 
 # Construct DATABASE_URL

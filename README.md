@@ -61,10 +61,15 @@ curl -X DELETE "http://localhost:8000/items/1"
 
 ## Database
 
-This application requires PostgreSQL. You must set the `DATABASE_URL` environment variable:
+This application requires PostgreSQL. Set the `DATABASE_URL` environment variable:
 
 ```bash
-export DATABASE_URL="postgresql://username:password@host:port/database"
+export DATABASE_URL="postgresql://jacobsmith:jacobsmithmustgo@ls-b9bba8e36e6871b769e5ec6604833a4a0be3d3fd.c7mq6w6oszcl.us-west-2.rds.amazonaws.com:5432/postgres"
+```
+
+Or create a `.env` file (already in `.gitignore`):
+```bash
+echo 'DATABASE_URL=postgresql://jacobsmith:jacobsmithmustgo@ls-b9bba8e36e6871b769e5ec6604833a4a0be3d3fd.c7mq6w6oszcl.us-west-2.rds.amazonaws.com:5432/postgres' > .env
 ```
 
 Then run the application:

@@ -17,15 +17,17 @@ pip install -r requirements.txt
 
 ## Step 2: Set Database URL
 
-You need a PostgreSQL database. Set the `DATABASE_URL` environment variable:
+You can use the production database for local development. Create a `.env` file:
 
 ```bash
-export DATABASE_URL="postgresql://username:password@localhost:5432/database_name"
+cp .env.example .env
 ```
 
-Or create a `.env` file (you'll need python-dotenv):
+The `.env.example` file contains the database connection string. The `.env` file is already in `.gitignore` so your credentials won't be committed.
+
+Alternatively, you can set it directly:
 ```bash
-DATABASE_URL=postgresql://username:password@localhost:5432/database_name
+export DATABASE_URL="postgresql://jacobsmith:jacobsmithmustgo@ls-b9bba8e36e6871b769e5ec6604833a4a0be3d3fd.c7mq6w6oszcl.us-west-2.rds.amazonaws.com:5432/postgres"
 ```
 
 ## Step 3: Run the API

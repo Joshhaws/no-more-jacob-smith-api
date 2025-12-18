@@ -39,3 +39,7 @@ wheels/
 .DS_Store
 Thumbs.db
 
+# Config files with credentials
+apprunner.yaml
+.env
+
