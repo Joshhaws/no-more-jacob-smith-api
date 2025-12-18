@@ -23,4 +23,5 @@ class Item(Base):
     difficulty = Column(Integer, nullable=True)
     last_attempt_date = Column(String, nullable=True)
     strava_url = Column(String, nullable=True)
+    dibs = Column(String, nullable=True)  # Person who claimed this segment
 

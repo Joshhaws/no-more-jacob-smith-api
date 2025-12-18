@@ -18,6 +18,7 @@ class ItemBase(BaseModel):
     difficulty: Optional[int] = None
     last_attempt_date: Optional[str] = None
     strava_url: Optional[str] = None
+    dibs: Optional[str] = None
 
 
 class ItemCreate(ItemBase):
@@ -40,6 +41,8 @@ class ItemUpdate(BaseModel):
     difficulty: Optional[int] = None
     last_attempt_date: Optional[str] = None
     strava_url: Optional[str] = None
+    dibs: Optional[str] = None
+    dibs: Optional[str] = None
 
 
 class Item(ItemBase):
