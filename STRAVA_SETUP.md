@@ -23,9 +23,12 @@ This guide explains how to set up Strava OAuth authentication for the segment tr
 
 ## Step 2: Set Environment Variables
 
-Add these to your `.env` file or environment:
+Create a `.env` file in the `no-more-jacob-smith-api` directory with:
 
 ```bash
+# Database
+DATABASE_URL=postgresql://username:password@host:port/database
+
 # Strava OAuth Credentials
 STRAVA_CLIENT_ID=your_client_id_here
 STRAVA_CLIENT_SECRET=your_client_secret_here
@@ -33,7 +36,12 @@ STRAVA_CLIENT_SECRET=your_client_secret_here
 # URLs (adjust for your environment)
 FRONTEND_URL=http://localhost:5173  # or https://your-domain.com for production
 BACKEND_URL=http://localhost:8000   # or https://your-api-domain.com for production
+
+# CORS (optional, defaults provided)
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
 ```
+
+**Note:** For production (AWS App Runner), set these in `apprunner.yaml` or AWS console environment variables.
 
 ## Step 3: Update Database
 
@@ -60,18 +68,20 @@ python create_tables.py
 4. Authorize the app in Strava
 5. You should be redirected back and see "✓ Connected to Strava"
 
-## Step 5: Sync Segment Data
+## Step 5: View Segment Data
 
 Once connected:
 
-1. **Sync Individual Segment**: Click the 🔄 button next to any segment with a Strava URL
-2. **Sync All Segments**: Click "Sync All Segments" in the header
+1. **View Personal Stats**: Expand any segment row in the table to see your personal statistics
+2. **Automatic Fetching**: Personal stats are fetched automatically when you expand a segment row
 
-The sync will update:
-- Personal Best Time
+The accordion view shows:
+- Personal Best Effort (clickable link to Strava activity)
 - Personal Best Pace
-- Personal Attempts
+- Grade Adjusted Pace (GAP)
+- Your Attempts
 - Last Attempt Date
+- Crown Information (editable inline)
 
 ## API Endpoints
 
@@ -79,8 +89,8 @@ The sync will update:
 - `GET /auth/strava/callback` - OAuth callback handler
 - `GET /auth/strava/status` - Check connection status
 - `POST /auth/strava/disconnect` - Disconnect Strava account
-- `GET /strava/segments/{segment_id}/times` - Get segment times for a specific segment
-- `POST /strava/segments/sync-all` - Sync all segments with Strava data
+- `GET /strava/segments/{segment_id}/times` - Get personal segment times and stats
+- `GET /strava/segments/{segment_id}/metadata` - Get segment metadata (name, distance, elevation, crown info)
 
 ## Troubleshooting
 
@@ -101,10 +111,20 @@ The sync will update:
 - Verify the segment exists in Strava
 - Check that your Strava account has access to the segment
 
+## Features
+
+- **Dynamic Data Fetching**: Personal stats are fetched on-demand when viewing segments (not stored in database)
+- **Grade Adjusted Pace (GAP)**: Automatically calculated for segments with elevation
+- **Crown Information**: Can be manually edited inline in the accordion view
+- **Duplicate Prevention**: Cannot add the same segment twice (validated by segment ID)
+- **Two-Phase Add Flow**: Enter Strava URL → Preview segment details → Confirm and save
+
 ## Notes
 
 - Strava tokens expire after 6 hours but can be refreshed automatically
 - The app stores tokens securely in the database
 - Only one Strava account can be connected at a time (single-user app)
-- Segment IDs are automatically extracted from Strava URLs when creating/updating segments
+- Segment IDs are automatically extracted from Strava URLs when creating segments
+- Personal stats are fetched dynamically from Strava and not stored in the database
+- Crown/KOM information is not available via Strava API (deprecated in 2020) and must be entered manually
 

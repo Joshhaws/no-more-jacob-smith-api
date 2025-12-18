@@ -26,6 +26,10 @@ Frontend (Amplify) → API (App Runner) → Database (Lightsail PostgreSQL)
 ### App Runner (Backend)
 - `DATABASE_URL`: PostgreSQL connection string from Lightsail
 - `ALLOWED_ORIGINS`: `https://no-more-jacob-smith.com`
+- `STRAVA_CLIENT_ID`: Your Strava application Client ID
+- `STRAVA_CLIENT_SECRET`: Your Strava application Client Secret
+- `FRONTEND_URL`: `https://no-more-jacob-smith.com`
+- `BACKEND_URL`: Your App Runner service URL (e.g., `https://xxxxx.us-west-2.awsapprunner.com`)
 
 ### Amplify (Frontend)
 - `VITE_API_URL`: Your App Runner API URL

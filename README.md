@@ -1,6 +1,6 @@
-# FastAPI CRUD Boilerplate
+# Strava Segment Tracker API
 
-A basic FastAPI application with CRUD endpoints for managing items.
+A FastAPI backend for tracking and managing Strava running segments with personal statistics, crown information, and dynamic data fetching from Strava.
 
 ## Setup
 
@@ -21,59 +21,63 @@ uvicorn main:app --reload
 
 ## API Endpoints
 
-- `GET /` - Welcome message
-- `POST /items/` - Create a new item
-- `GET /items/` - Get all items (with pagination: skip, limit)
-- `GET /items/{item_id}` - Get a specific item by ID
-- `PUT /items/{item_id}` - Update an item
-- `DELETE /items/{item_id}` - Delete an item
+### Segment Management
+- `GET /items/` - Get all segments (with pagination: skip, limit)
+- `POST /items/` - Create a new segment (requires Strava URL)
+- `GET /items/{item_id}` - Get a specific segment by ID
+- `PUT /items/{item_id}` - Update a segment
+- `DELETE /items/{item_id}` - Delete a segment
 
-## Example Usage
+### Strava Authentication
+- `GET /auth/strava/authorize` - Get Strava OAuth authorization URL
+- `GET /auth/strava/callback` - Handle Strava OAuth callback
+- `GET /auth/strava/status` - Check Strava connection status
+- `POST /auth/strava/disconnect` - Disconnect Strava account
 
-### Create an item:
-```bash
-curl -X POST "http://localhost:8000/items/" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Test Item", "description": "A test item", "is_active": true}'
-```
+### Strava Data
+- `GET /strava/segments/{segment_id}/times` - Get personal segment times and stats
+- `GET /strava/segments/{segment_id}/metadata` - Get segment metadata (name, distance, elevation)
 
-### Get all items:
-```bash
-curl "http://localhost:8000/items/"
-```
+## Features
 
-### Get a specific item:
-```bash
-curl "http://localhost:8000/items/1"
-```
+- **Dynamic Strava Integration**: Fetch personal stats on-demand from Strava
+- **Grade Adjusted Pace (GAP)**: Automatically calculated for hilly segments
+- **Crown Management**: Track and edit KOM/QOM information inline
+- **Duplicate Prevention**: Validates segments before adding
+- **Two-Phase Add Flow**: Preview segment details before saving
 
-### Update an item:
-```bash
-curl -X PUT "http://localhost:8000/items/1" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Updated Item", "description": "Updated description"}'
-```
+## Documentation
 
-### Delete an item:
-```bash
-curl -X DELETE "http://localhost:8000/items/1"
-```
+- [Strava Setup Guide](./STRAVA_SETUP.md) - Complete Strava OAuth setup
+- [AWS Deployment Guide](./AWS_QUICK_START.md) - Deploy to AWS App Runner
+- [Local Development](./RUN_LOCALLY.md) - Run locally
 
 ## Database
 
-This application requires PostgreSQL. Set the `DATABASE_URL` environment variable:
+This application requires PostgreSQL. Set the `DATABASE_URL` environment variable in a `.env` file:
 
 ```bash
-export DATABASE_URL="postgresql://jacobsmith:jacobsmithmustgo@ls-b9bba8e36e6871b769e5ec6604833a4a0be3d3fd.c7mq6w6oszcl.us-west-2.rds.amazonaws.com:5432/postgres"
-```
-
-Or create a `.env` file (already in `.gitignore`):
-```bash
-echo 'DATABASE_URL=postgresql://jacobsmith:jacobsmithmustgo@ls-b9bba8e36e6871b769e5ec6604833a4a0be3d3fd.c7mq6w6oszcl.us-west-2.rds.amazonaws.com:5432/postgres' > .env
+# Create .env file
+DATABASE_URL=postgresql://username:password@host:port/database
+STRAVA_CLIENT_ID=your_client_id
+STRAVA_CLIENT_SECRET=your_client_secret
+FRONTEND_URL=http://localhost:5173
+BACKEND_URL=http://localhost:8000
 ```
 
 Then run the application:
 ```bash
 uvicorn main:app --reload
 ```
+
+## Bulk Loading Segments
+
+To load multiple segments at once, use the ETL script:
+
+```bash
+# Edit load_segments.py to add your segment IDs
+python3 load_segments.py
+```
+
+This script will fetch segment metadata from Strava and load them into the database. Requires Strava authentication (connect via the app first).
 

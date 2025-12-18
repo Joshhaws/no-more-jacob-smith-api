@@ -130,6 +130,10 @@ postgresql://username:password@endpoint:5432/postgres
 **Environment Variables Needed:**
 - `DATABASE_URL`: Your Lightsail PostgreSQL connection string
 - `ALLOWED_ORIGINS`: Your domain (https://no-more-jacob-smith.com)
+- `STRAVA_CLIENT_ID`: Your Strava application Client ID
+- `STRAVA_CLIENT_SECRET`: Your Strava application Client Secret
+- `FRONTEND_URL`: Your frontend domain (https://no-more-jacob-smith.com)
+- `BACKEND_URL`: Your App Runner service URL
 
 **Amplify Environment Variable:**
 - `VITE_API_URL`: Your App Runner API URL
