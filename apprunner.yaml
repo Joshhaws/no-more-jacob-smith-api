@@ -15,9 +15,9 @@ run:
     - name: ALLOWED_ORIGINS
       value: "https://no-more-jacob-smith.com"
     - name: STRAVA_CLIENT_ID
-      value: "YOUR_STRAVA_CLIENT_ID"
+      value: "69378"
     - name: STRAVA_CLIENT_SECRET
-      value: "YOUR_STRAVA_CLIENT_SECRET"
+      value: "349028dc7cfc5dba89d770776e7e5d70bd583204"
     - name: FRONTEND_URL
       value: "https://no-more-jacob-smith.com"
     - name: BACKEND_URL
