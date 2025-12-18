@@ -1,11 +1,15 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import os
 import models
 import schemas
 from database import SessionLocal, engine
+import httpx
+from datetime import datetime, timedelta
+import re
 
 # Create database tables
 models.Base.metadata.create_all(bind=engine)
@@ -49,11 +53,42 @@ def read_root():
 @app.post("/items/", response_model=schemas.Item)
 def create_item(item: schemas.ItemCreate, db: Session = Depends(get_db)):
     """Create a new item"""
-    db_item = models.Item(**item.model_dump())
-    db.add(db_item)
-    db.commit()
-    db.refresh(db_item)
-    return db_item
+    try:
+        # Check for duplicate segment by strava_segment_id
+        if item.strava_segment_id:
+            existing_item = db.query(models.Item).filter(
+                models.Item.strava_segment_id == item.strava_segment_id
+            ).first()
+            if existing_item:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Segment with ID {item.strava_segment_id} already exists: '{existing_item.segment_name}'"
+                )
+        
+        # Also check by strava_url as a fallback
+        if item.strava_url:
+            existing_item = db.query(models.Item).filter(
+                models.Item.strava_url == item.strava_url
+            ).first()
+            if existing_item:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Segment with URL '{item.strava_url}' already exists: '{existing_item.segment_name}'"
+                )
+        
+        db_item = models.Item(**item.model_dump())
+        db.add(db_item)
+        db.commit()
+        db.refresh(db_item)
+        return db_item
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Error creating item: {error_trace}")
+        raise HTTPException(status_code=400, detail=f"Error creating item: {str(e)}")
 
 
 @app.get("/items/", response_model=List[schemas.Item])
@@ -253,4 +288,536 @@ def seed_test_data(db: Session = Depends(get_db)):
     
     db.commit()
     return {"message": f"Successfully seeded {len(test_segments)} test segments"}
+
+
+# Strava OAuth Configuration
+STRAVA_CLIENT_ID = os.getenv("STRAVA_CLIENT_ID")
+STRAVA_CLIENT_SECRET = os.getenv("STRAVA_CLIENT_SECRET")
+STRAVA_REDIRECT_URI = os.getenv("STRAVA_REDIRECT_URI", "http://localhost:5173/auth/callback")
+
+# Helper function to get or create user
+def get_or_create_user(db: Session, strava_id: int):
+    user = db.query(models.User).filter(models.User.strava_id == strava_id).first()
+    if not user:
+        user = models.User(strava_id=strava_id)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user
+
+
+# Helper function to refresh Strava token
+async def refresh_strava_token_async(user: models.User, db: Session):
+    """Async version of token refresh"""
+    if not user.strava_refresh_token:
+        return None
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://www.strava.com/oauth/token",
+                data={
+                    "client_id": STRAVA_CLIENT_ID,
+                    "client_secret": STRAVA_CLIENT_SECRET,
+                    "grant_type": "refresh_token",
+                    "refresh_token": user.strava_refresh_token,
+                },
+                timeout=10.0
+            )
+            
+            if response.status_code != 200:
+                print(f"Token refresh failed: {response.status_code} - {response.text}")
+                return None
+            
+            token_data = response.json()
+            
+            if "access_token" in token_data:
+                user.strava_access_token = token_data["access_token"]
+                user.strava_refresh_token = token_data.get("refresh_token", user.strava_refresh_token)
+                expires_in = token_data.get("expires_at", 0)
+                user.token_expires_at = datetime.fromtimestamp(expires_in) if expires_in else None
+                db.commit()
+                return user.strava_access_token
+    except Exception as e:
+        import traceback
+        print(f"Error refreshing token: {e}")
+        print(traceback.format_exc())
+        return None
+    
+    return None
+
+
+def refresh_strava_token(user: models.User, db: Session):
+    """Sync wrapper for token refresh (for backward compatibility)"""
+    if not user.strava_refresh_token:
+        return None
+    
+    try:
+        import asyncio
+        try:
+            # Try to get the current event loop
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If loop is running, we can't use asyncio.run()
+                # This shouldn't happen in sync context, but handle it
+                raise RuntimeError("Cannot use asyncio.run() in running event loop")
+        except RuntimeError:
+            # No event loop, safe to use asyncio.run()
+            pass
+        
+        return asyncio.run(refresh_strava_token_async(user, db))
+    except Exception as e:
+        import traceback
+        print(f"Error in sync token refresh wrapper: {e}")
+        print(traceback.format_exc())
+        return None
+
+
+# Helper function to get valid access token (async version for use in async endpoints)
+async def get_valid_access_token_async(user: models.User, db: Session):
+    if not user.strava_access_token:
+        return None
+    
+    # Check if token is expired or expires soon (within 5 minutes)
+    if user.token_expires_at and user.token_expires_at <= datetime.utcnow() + timedelta(minutes=5):
+        return await refresh_strava_token_async(user, db)
+    
+    return user.strava_access_token
+
+
+# Helper function to get valid access token (sync version for backward compatibility)
+def get_valid_access_token(user: models.User, db: Session):
+    if not user.strava_access_token:
+        return None
+    
+    # Check if token is expired or expires soon (within 5 minutes)
+    if user.token_expires_at and user.token_expires_at <= datetime.utcnow() + timedelta(minutes=5):
+        return refresh_strava_token(user, db)
+    
+    return user.strava_access_token
+
+
+# Extract segment ID from Strava URL
+def extract_segment_id(strava_url: Optional[str]) -> Optional[int]:
+    if not strava_url:
+        return None
+    match = re.search(r'/segments/(\d+)', strava_url)
+    return int(match.group(1)) if match else None
+
+
+@app.get("/auth/strava/authorize")
+def strava_authorize():
+    """Generate Strava OAuth authorization URL"""
+    if not STRAVA_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="Strava client ID not configured")
+    
+    # Get backend URL from environment or use default
+    backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
+    redirect_uri = f"{backend_url}/auth/strava/callback"
+    
+    auth_url = (
+        f"https://www.strava.com/oauth/authorize"
+        f"?client_id={STRAVA_CLIENT_ID}"
+        f"&redirect_uri={redirect_uri}"
+        f"&response_type=code"
+        f"&scope=activity:read_all"
+        f"&approval_prompt=force"
+    )
+    
+    return {"authorization_url": auth_url}
+
+
+@app.get("/auth/strava/callback")
+async def strava_callback(code: str, db: Session = Depends(get_db)):
+    """Handle Strava OAuth callback"""
+    if not STRAVA_CLIENT_ID or not STRAVA_CLIENT_SECRET:
+        raise HTTPException(status_code=500, detail="Strava credentials not configured")
+    
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            # Exchange code for token
+            response = await client.post(
+                "https://www.strava.com/oauth/token",
+                data={
+                    "client_id": STRAVA_CLIENT_ID,
+                    "client_secret": STRAVA_CLIENT_SECRET,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                },
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=400, detail="Failed to exchange authorization code")
+            
+            token_data = response.json()
+            athlete = token_data.get("athlete", {})
+            strava_id = athlete.get("id")
+            
+            if not strava_id:
+                raise HTTPException(status_code=400, detail="No athlete ID in response")
+            
+            # Get or create user
+            user = get_or_create_user(db, strava_id)
+            
+            # Update tokens
+            user.strava_access_token = token_data["access_token"]
+            user.strava_refresh_token = token_data.get("refresh_token")
+            expires_at = token_data.get("expires_at")
+            if expires_at:
+                user.token_expires_at = datetime.fromtimestamp(expires_at)
+            user.updated_at = datetime.utcnow()
+            db.commit()
+            
+            # Redirect to frontend with success
+            return RedirectResponse(url=f"{frontend_url}?strava_connected=true")
+            
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=400, detail=f"Strava API error: {e.response.text}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error connecting to Strava: {str(e)}")
+
+
+@app.get("/auth/strava/status", response_model=schemas.StravaAuthStatus)
+def strava_auth_status(db: Session = Depends(get_db)):
+    """Check Strava connection status"""
+    # For now, return the first user's status (single user app)
+    # In production, you'd use session/auth to identify the user
+    user = db.query(models.User).first()
+    
+    if user and user.strava_access_token:
+        # Check if token is still valid
+        token = get_valid_access_token(user, db)
+        if token:
+            return schemas.StravaAuthStatus(connected=True, athlete_name=None)
+    
+    return schemas.StravaAuthStatus(connected=False)
+
+
+@app.post("/auth/strava/disconnect")
+def strava_disconnect(db: Session = Depends(get_db)):
+    """Disconnect Strava account"""
+    user = db.query(models.User).first()
+    if user:
+        user.strava_access_token = None
+        user.strava_refresh_token = None
+        user.token_expires_at = None
+        db.commit()
+    
+    return {"message": "Strava account disconnected"}
+
+
+# Helper function to fetch segment times from Strava
+async def fetch_segment_times_from_strava(segment_id: int, access_token: str) -> schemas.StravaSegmentTime:
+    """Fetch segment times from Strava API"""
+    async with httpx.AsyncClient() as client:
+        # Get segment details
+        segment_response = await client.get(
+            f"https://www.strava.com/api/v3/segments/{segment_id}",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        
+        if segment_response.status_code != 200:
+            raise HTTPException(status_code=404, detail="Segment not found")
+        
+        segment_data = segment_response.json()
+        segment_name = segment_data.get("name", "")
+        distance_meters = segment_data.get("distance", 0)
+        elevation_high = segment_data.get("elevation_high", 0)
+        elevation_low = segment_data.get("elevation_low", 0)
+        elevation_gain_meters = elevation_high - elevation_low if elevation_high > elevation_low else 0
+        
+        # Try to get leaderboard/KOM information (may be deprecated but worth trying)
+        crown_holder = None
+        crown_time = None
+        crown_date = None
+        crown_pace = None
+        
+        try:
+            leaderboard_response = await client.get(
+                f"https://www.strava.com/api/v3/segments/{segment_id}/leaderboard",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params={"per_page": 1},  # Just get the top entry
+                timeout=5.0
+            )
+            
+            if leaderboard_response.status_code == 200:
+                leaderboard_data = leaderboard_response.json()
+                entries = leaderboard_data.get("entries", [])
+                
+                if entries:
+                    # Get the top entry (KOM/QOM)
+                    top_entry = entries[0]
+                    athlete = top_entry.get("athlete_name", "")
+                    elapsed_time = top_entry.get("elapsed_time")
+                    
+                    if athlete and elapsed_time:
+                        crown_holder = athlete
+                        
+                        # Convert seconds to MM:SS format
+                        minutes = elapsed_time // 60
+                        seconds = elapsed_time % 60
+                        crown_time = f"{int(minutes)}:{int(seconds):02d}"
+                        
+                        # Calculate pace
+                        if distance_meters > 0:
+                            distance_miles = distance_meters / 1609.34
+                            pace_seconds_per_mile = elapsed_time / distance_miles
+                            pace_minutes = int(pace_seconds_per_mile // 60)
+                            pace_seconds = int(pace_seconds_per_mile % 60)
+                            crown_pace = f"{pace_minutes}:{pace_seconds:02d}"
+                        
+                        # Get date if available
+                        start_date = top_entry.get("start_date")
+                        if start_date:
+                            try:
+                                dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                                crown_date = dt.strftime("%m/%d/%Y")
+                            except:
+                                pass
+        except Exception as e:
+            # Leaderboard endpoint may be deprecated or unavailable - that's okay
+            print(f"Could not fetch leaderboard data: {e}")
+        
+        # Get athlete's segment stats
+        stats_response = await client.get(
+            f"https://www.strava.com/api/v3/segments/{segment_id}/all_efforts",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={"per_page": 200},  # Get all efforts to find best
+        )
+        
+        personal_best_time = None
+        personal_best_pace = None
+        personal_best_grade_adjusted_pace = None
+        personal_attempts = 0
+        last_attempt_date = None
+        personal_best_activity_id = None
+        
+        if stats_response.status_code == 200:
+            efforts = stats_response.json()
+            personal_attempts = len(efforts)
+            
+            if efforts:
+                # Find best effort
+                best_effort = min(efforts, key=lambda e: e.get("elapsed_time", float('inf')))
+                elapsed_time = best_effort.get("elapsed_time")
+                
+                # Get activity ID from the best effort
+                activity = best_effort.get("activity")
+                if activity:
+                    personal_best_activity_id = activity.get("id")
+                
+                if elapsed_time and distance_meters > 0:
+                    # Convert seconds to MM:SS format
+                    minutes = elapsed_time // 60
+                    seconds = elapsed_time % 60
+                    personal_best_time = f"{int(minutes)}:{int(seconds):02d}"
+                    
+                    # Calculate pace
+                    distance_miles = distance_meters / 1609.34
+                    pace_seconds_per_mile = elapsed_time / distance_miles
+                    pace_minutes = int(pace_seconds_per_mile // 60)
+                    pace_seconds = int(pace_seconds_per_mile % 60)
+                    personal_best_pace = f"{pace_minutes}:{pace_seconds:02d}"
+                    
+                    # Calculate Grade Adjusted Pace (GAP)
+                    # GAP adjusts pace to what it would be on flat terrain
+                    # Formula: GAP = actual_pace / (1 + k * grade)
+                    # Where k ≈ 0.04 for uphill, k ≈ 0.02 for downhill
+                    # Grade = elevation_gain / distance (as decimal)
+                    if elevation_gain_meters > 0:
+                        grade = elevation_gain_meters / distance_meters  # Grade as decimal (e.g., 0.05 = 5%)
+                        # Use k = 0.04 for uphill segments (positive grade)
+                        # This is a simplified model - Strava's exact formula is proprietary
+                        k = 0.04 if grade > 0 else 0.02
+                        gap_factor = 1 + (k * grade)
+                        gap_seconds_per_mile = pace_seconds_per_mile / gap_factor
+                        gap_minutes = int(gap_seconds_per_mile // 60)
+                        gap_seconds = int(gap_seconds_per_mile % 60)
+                        personal_best_grade_adjusted_pace = f"{gap_minutes}:{gap_seconds:02d}"
+                    elif elevation_gain_meters == 0:
+                        # Flat segment - GAP equals actual pace
+                        personal_best_grade_adjusted_pace = personal_best_pace
+                
+                # Get last attempt date (most recent)
+                latest_effort = max(efforts, key=lambda e: e.get("start_date", ""))
+                start_date = latest_effort.get("start_date")
+                if start_date:
+                    try:
+                        dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                        last_attempt_date = dt.strftime("%m/%d/%Y")
+                    except:
+                        pass
+        
+        return schemas.StravaSegmentTime(
+            segment_id=segment_id,
+            segment_name=segment_name,
+            personal_best_time=personal_best_time,
+            personal_best_pace=personal_best_pace,
+            personal_best_grade_adjusted_pace=personal_best_grade_adjusted_pace,
+            personal_attempts=personal_attempts if personal_attempts > 0 else None,
+            last_attempt_date=last_attempt_date,
+            personal_best_activity_id=personal_best_activity_id,
+            crown_holder=crown_holder,
+            crown_time=crown_time,
+            crown_date=crown_date,
+            crown_pace=crown_pace,
+        )
+
+
+@app.get("/strava/segments/{segment_id}/times", response_model=schemas.StravaSegmentTime)
+async def get_segment_times(segment_id: int, db: Session = Depends(get_db)):
+    """Get personal best time for a segment from Strava"""
+    user = db.query(models.User).first()
+    
+    if not user or not user.strava_access_token:
+        raise HTTPException(status_code=401, detail="Strava not connected")
+    
+    access_token = await get_valid_access_token_async(user, db)
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Invalid Strava token. Please reconnect.")
+    
+    try:
+        return await fetch_segment_times_from_strava(segment_id, access_token)
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            raise HTTPException(status_code=401, detail="Strava token expired. Please reconnect.")
+        raise HTTPException(status_code=e.response.status_code, detail=f"Strava API error: {e.response.text}")
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Error fetching segment times: {error_trace}")
+        raise HTTPException(status_code=500, detail=f"Error fetching segment data: {str(e)}")
+
+
+@app.get("/strava/segments/{segment_id}/metadata", response_model=schemas.StravaSegmentMetadata)
+async def get_segment_metadata(segment_id: int, db: Session = Depends(get_db)):
+    """Get segment metadata (name, distance, elevation, crown info) from Strava"""
+    # Require Strava authentication
+    user = db.query(models.User).first()
+    
+    if not user or not user.strava_access_token:
+        raise HTTPException(status_code=401, detail="Strava authentication required. Please connect your Strava account.")
+    
+    access_token = await get_valid_access_token_async(user, db)
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Invalid Strava token. Please reconnect your Strava account.")
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            segment_response = await client.get(
+                f"https://www.strava.com/api/v3/segments/{segment_id}",
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=10.0
+            )
+            
+            if segment_response.status_code != 200:
+                if segment_response.status_code == 401:
+                    raise HTTPException(status_code=401, detail="Strava authentication expired. Please reconnect your Strava account.")
+                if segment_response.status_code == 404:
+                    raise HTTPException(status_code=404, detail="Segment not found")
+                error_text = segment_response.text[:200] if segment_response.text else "Unknown error"
+                raise HTTPException(status_code=segment_response.status_code, detail=f"Strava API error: {error_text}")
+            
+            segment_data = segment_response.json()
+            
+            # Convert distance from meters to miles
+            distance_meters = segment_data.get("distance", 0)
+            distance_miles = distance_meters / 1609.34 if distance_meters > 0 else None
+            
+            # Convert elevation from meters to feet
+            # Strava provides elevation_high and elevation_low, but we want total elevation gain
+            # For segments, we can use average_grade and distance to estimate, or use elevation_high - elevation_low
+            elevation_high = segment_data.get("elevation_high", 0)
+            elevation_low = segment_data.get("elevation_low", 0)
+            elevation_gain_meters = elevation_high - elevation_low if elevation_high > elevation_low else 0
+            elevation_gain_feet = elevation_gain_meters * 3.28084 if elevation_gain_meters > 0 else None
+            
+            # Note: Strava deprecated the leaderboard API in 2020, so crown/KOM information
+            # is no longer available via the API. Users must manually enter this information
+            # or view it directly on Strava's website.
+            crown_holder = None
+            crown_time = None
+            crown_date = None
+            crown_pace = None
+            
+            # Attempt to fetch leaderboard data (will likely fail due to API deprecation)
+            # This is kept for potential future API changes or if Strava re-enables it
+            try:
+                leaderboard_response = await client.get(
+                    f"https://www.strava.com/api/v3/segments/{segment_id}/leaderboard",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params={"per_page": 1},
+                    timeout=5.0
+                )
+                
+                if leaderboard_response.status_code == 200:
+                    leaderboard_data = leaderboard_response.json()
+                    entries = leaderboard_data.get("entries", [])
+                    
+                    if entries:
+                        top_entry = entries[0]
+                        athlete = top_entry.get("athlete_name", "")
+                        elapsed_time = top_entry.get("elapsed_time")
+                        
+                        if athlete and elapsed_time:
+                            crown_holder = athlete
+                            
+                            # Convert seconds to MM:SS format
+                            minutes = elapsed_time // 60
+                            seconds = elapsed_time % 60
+                            crown_time = f"{int(minutes)}:{int(seconds):02d}"
+                            
+                            # Calculate pace
+                            if distance_meters > 0:
+                                distance_miles = distance_meters / 1609.34
+                                pace_seconds_per_mile = elapsed_time / distance_miles
+                                pace_minutes = int(pace_seconds_per_mile // 60)
+                                pace_seconds = int(pace_seconds_per_mile % 60)
+                                crown_pace = f"{pace_minutes}:{pace_seconds:02d}"
+                            
+                            # Get date if available
+                            start_date = top_entry.get("start_date")
+                            if start_date:
+                                try:
+                                    dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                                    crown_date = dt.strftime("%m/%d/%Y")
+                                except:
+                                    pass
+            except Exception as e:
+                # Leaderboard endpoint is deprecated - this is expected
+                # Crown information will remain None and can be manually entered
+                pass
+            
+            return schemas.StravaSegmentMetadata(
+                segment_id=segment_id,
+                segment_name=segment_data.get("name", ""),
+                distance=round(distance_miles, 2) if distance_miles else None,
+                elevation_gain=round(elevation_gain_feet, 1) if elevation_gain_feet else None,
+                strava_url=f"https://www.strava.com/segments/{segment_id}",
+                crown_holder=crown_holder,
+                crown_time=crown_time,
+                crown_date=crown_date,
+                crown_pace=crown_pace,
+            )
+            
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            raise HTTPException(status_code=401, detail="Strava authentication expired. Please reconnect your Strava account.")
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Segment not found")
+        error_text = e.response.text[:200] if e.response.text else "Unknown error"
+        raise HTTPException(status_code=e.response.status_code, detail=f"Strava API error: {error_text}")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Request to Strava API timed out. Please try again.")
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Error fetching segment metadata: {error_trace}")
+        raise HTTPException(status_code=500, detail=f"Error fetching segment metadata: {str(e)}")
 

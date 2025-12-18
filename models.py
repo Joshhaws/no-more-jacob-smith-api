@@ -1,7 +1,20 @@
-from sqlalchemy import Column, Integer, String, Boolean, Float, Date
+from sqlalchemy import Column, Integer, String, Boolean, Float, Date, DateTime
 from sqlalchemy.ext.declarative import declarative_base
+from datetime import datetime
 
 Base = declarative_base()
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    strava_id = Column(Integer, unique=True, nullable=True, index=True)  # Strava athlete ID
+    strava_access_token = Column(String, nullable=True)
+    strava_refresh_token = Column(String, nullable=True)
+    token_expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class Item(Base):
@@ -23,5 +36,6 @@ class Item(Base):
     difficulty = Column(Integer, nullable=True)
     last_attempt_date = Column(String, nullable=True)
     strava_url = Column(String, nullable=True)
+    strava_segment_id = Column(Integer, nullable=True, index=True)  # Extract from URL for API calls
     dibs = Column(String, nullable=True)  # Person who claimed this segment
 

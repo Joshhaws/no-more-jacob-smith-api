@@ -5,6 +5,7 @@ This ensures the database schema is set up correctly and populated with test seg
 """
 
 import os
+import re
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -41,6 +42,14 @@ for table_name in models.Base.metadata.tables.keys():
 # Seed test data
 print("\nSeeding test data...")
 db = SessionLocal()
+
+# Check if User table exists and is ready
+print("\nChecking User table...")
+try:
+    user_count = db.query(models.User).count()
+    print(f"✓ User table ready (contains {user_count} user(s))")
+except Exception as e:
+    print(f"⚠ User table check: {e}")
 try:
     count = db.query(models.Item).count()
     if count > 0:
@@ -186,11 +195,33 @@ try:
         ]
         
         for segment_data in test_segments:
+            # Extract segment ID from Strava URL if present
+            if segment_data.get("strava_url"):
+                match = re.search(r'/segments/(\d+)', segment_data["strava_url"])
+                if match:
+                    segment_data["strava_segment_id"] = int(match.group(1))
+            
             db_item = models.Item(**segment_data)
             db.add(db_item)
         
         db.commit()
         print(f"✓ Successfully seeded {len(test_segments)} test segments!")
+        
+        # Update existing segments to extract segment IDs from URLs
+        print("\nUpdating existing segments with Strava segment IDs...")
+        existing_items = db.query(models.Item).filter(models.Item.strava_segment_id == None).all()
+        updated_count = 0
+        for item in existing_items:
+            if item.strava_url:
+                match = re.search(r'/segments/(\d+)', item.strava_url)
+                if match:
+                    item.strava_segment_id = int(match.group(1))
+                    updated_count += 1
+        if updated_count > 0:
+            db.commit()
+            print(f"✓ Updated {updated_count} existing segments with Strava segment IDs")
+        else:
+            print("✓ No segments needed updating")
 finally:
     db.close()
 

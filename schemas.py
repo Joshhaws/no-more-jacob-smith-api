@@ -18,6 +18,7 @@ class ItemBase(BaseModel):
     difficulty: Optional[int] = None
     last_attempt_date: Optional[str] = None
     strava_url: Optional[str] = None
+    strava_segment_id: Optional[int] = None
     dibs: Optional[str] = None
 
 
@@ -41,7 +42,7 @@ class ItemUpdate(BaseModel):
     difficulty: Optional[int] = None
     last_attempt_date: Optional[str] = None
     strava_url: Optional[str] = None
-    dibs: Optional[str] = None
+    strava_segment_id: Optional[int] = None
     dibs: Optional[str] = None
 
 
@@ -49,4 +50,36 @@ class Item(ItemBase):
     id: int
     
     model_config = ConfigDict(from_attributes=True)
+
+
+class StravaAuthStatus(BaseModel):
+    connected: bool
+    athlete_name: Optional[str] = None
+
+
+class StravaSegmentTime(BaseModel):
+    segment_id: int
+    segment_name: str
+    personal_best_time: Optional[str] = None
+    personal_best_pace: Optional[str] = None
+    personal_best_grade_adjusted_pace: Optional[str] = None  # Grade Adjusted Pace (GAP)
+    personal_attempts: Optional[int] = None
+    last_attempt_date: Optional[str] = None
+    personal_best_activity_id: Optional[int] = None  # Activity ID for the personal best effort
+    crown_holder: Optional[str] = None  # KOM/QOM holder name
+    crown_time: Optional[str] = None  # KOM/QOM time
+    crown_date: Optional[str] = None  # KOM/QOM date
+    crown_pace: Optional[str] = None  # KOM/QOM pace
+
+
+class StravaSegmentMetadata(BaseModel):
+    segment_id: int
+    segment_name: str
+    distance: Optional[float] = None  # in miles
+    elevation_gain: Optional[float] = None  # in feet
+    strava_url: str
+    crown_holder: Optional[str] = None  # KOM/QOM holder name
+    crown_time: Optional[str] = None  # KOM/QOM time
+    crown_date: Optional[str] = None  # KOM/QOM date
+    crown_pace: Optional[str] = None  # KOM/QOM pace
 
