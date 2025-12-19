@@ -15,11 +15,14 @@ class ItemBase(BaseModel):
     personal_best_pace: Optional[str] = None  # format: MM:SS per mile
     personal_attempts: int = 0
     overall_attempts: int = 0
-    difficulty: Optional[int] = None
     last_attempt_date: Optional[str] = None
     strava_url: Optional[str] = None
     strava_segment_id: Optional[int] = None
     dibs: Optional[str] = None
+    completed: bool = False
+    polyline: Optional[str] = None  # Encoded polyline for map display
+    start_latitude: Optional[float] = None  # Start point latitude
+    start_longitude: Optional[float] = None  # Start point longitude
 
 
 class ItemCreate(ItemBase):
@@ -39,11 +42,14 @@ class ItemUpdate(BaseModel):
     personal_best_pace: Optional[str] = None
     personal_attempts: Optional[int] = None
     overall_attempts: Optional[int] = None
-    difficulty: Optional[int] = None
     last_attempt_date: Optional[str] = None
     strava_url: Optional[str] = None
     strava_segment_id: Optional[int] = None
     dibs: Optional[str] = None
+    completed: Optional[bool] = None
+    polyline: Optional[str] = None  # Encoded polyline for map display
+    start_latitude: Optional[float] = None  # Start point latitude
+    start_longitude: Optional[float] = None  # Start point longitude
 
 
 class Item(ItemBase):
@@ -66,6 +72,9 @@ class StravaSegmentTime(BaseModel):
     personal_attempts: Optional[int] = None
     last_attempt_date: Optional[str] = None
     personal_best_activity_id: Optional[int] = None  # Activity ID for the personal best effort
+    polyline: Optional[str] = None  # Encoded polyline for map display
+    start_latitude: Optional[float] = None  # Start point latitude
+    start_longitude: Optional[float] = None  # Start point longitude
     crown_holder: Optional[str] = None  # KOM/QOM holder name
     crown_time: Optional[str] = None  # KOM/QOM time
     crown_date: Optional[str] = None  # KOM/QOM date
@@ -78,6 +87,9 @@ class StravaSegmentMetadata(BaseModel):
     distance: Optional[float] = None  # in miles
     elevation_gain: Optional[float] = None  # in feet
     strava_url: str
+    polyline: Optional[str] = None  # Encoded polyline for map display
+    start_latitude: Optional[float] = None  # Start point latitude
+    start_longitude: Optional[float] = None  # Start point longitude
     crown_holder: Optional[str] = None  # KOM/QOM holder name
     crown_time: Optional[str] = None  # KOM/QOM time
     crown_date: Optional[str] = None  # KOM/QOM date

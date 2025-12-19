@@ -76,10 +76,17 @@ def create_item(item: schemas.ItemCreate, db: Session = Depends(get_db)):
                     detail=f"Segment with URL '{item.strava_url}' already exists: '{existing_item.segment_name}'"
                 )
         
-        db_item = models.Item(**item.model_dump())
+        item_data = item.model_dump()
+        print(f"Creating item with data: {list(item_data.keys())}")
+        print(f"Polyline present: {bool(item_data.get('polyline'))}")
+        print(f"Start coordinates: {item_data.get('start_latitude')}, {item_data.get('start_longitude')}")
+        
+        db_item = models.Item(**item_data)
         db.add(db_item)
         db.commit()
         db.refresh(db_item)
+        
+        print(f"Created item ID {db_item.id} with polyline: {bool(db_item.polyline)}")
         return db_item
     except HTTPException:
         raise
@@ -92,9 +99,12 @@ def create_item(item: schemas.ItemCreate, db: Session = Depends(get_db)):
 
 
 @app.get("/items/", response_model=List[schemas.Item])
-def read_items(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """Get all items"""
-    items = db.query(models.Item).offset(skip).limit(limit).all()
+def read_items(skip: int = 0, limit: int = 100, completed: Optional[bool] = None, db: Session = Depends(get_db)):
+    """Get all items, optionally filtered by completed status"""
+    query = db.query(models.Item)
+    if completed is not None:
+        query = query.filter(models.Item.completed == completed)
+    items = query.offset(skip).limit(limit).all()
     return items
 
 
@@ -123,16 +133,17 @@ def update_item(item_id: int, item: schemas.ItemUpdate, db: Session = Depends(ge
     return db_item
 
 
-@app.delete("/items/{item_id}")
-def delete_item(item_id: int, db: Session = Depends(get_db)):
-    """Delete an item"""
+@app.put("/items/{item_id}/complete")
+def toggle_complete_item(item_id: int, db: Session = Depends(get_db)):
+    """Toggle the completed status of an item"""
     db_item = db.query(models.Item).filter(models.Item.id == item_id).first()
     if db_item is None:
         raise HTTPException(status_code=404, detail="Item not found")
     
-    db.delete(db_item)
+    db_item.completed = not db_item.completed
     db.commit()
-    return {"message": "Item deleted successfully"}
+    db.refresh(db_item)
+    return {"message": f"Item marked as {'completed' if db_item.completed else 'incomplete'}", "completed": db_item.completed}
 
 
 @app.post("/seed/")
@@ -157,7 +168,6 @@ def seed_test_data(db: Session = Depends(get_db)):
             "personal_best_pace": "12:17",
             "personal_attempts": 1,
             "overall_attempts": 6,
-            "difficulty": 7,
             "last_attempt_date": "7/3/2025",
             "strava_url": "https://www.strava.com/segments/12345"
         },
@@ -174,7 +184,6 @@ def seed_test_data(db: Session = Depends(get_db)):
             "personal_best_pace": "9:07",
             "personal_attempts": 5,
             "overall_attempts": 111,
-            "difficulty": 6,
             "last_attempt_date": "4/22/2025",
             "strava_url": "https://www.strava.com/segments/12346"
         },
@@ -191,7 +200,6 @@ def seed_test_data(db: Session = Depends(get_db)):
             "personal_best_pace": None,
             "personal_attempts": 0,
             "overall_attempts": 10,
-            "difficulty": 8,
             "last_attempt_date": "11/28/2025",
             "strava_url": "https://www.strava.com/segments/12347"
         },
@@ -208,7 +216,6 @@ def seed_test_data(db: Session = Depends(get_db)):
             "personal_best_pace": None,
             "personal_attempts": 0,
             "overall_attempts": 30,
-            "difficulty": 5,
             "last_attempt_date": "11/9/2024",
             "strava_url": "https://www.strava.com/segments/12348"
         },
@@ -225,7 +232,6 @@ def seed_test_data(db: Session = Depends(get_db)):
             "personal_best_pace": None,
             "personal_attempts": 0,
             "overall_attempts": 1129,
-            "difficulty": 1,
             "last_attempt_date": "12/8/2025",
             "strava_url": "https://www.strava.com/segments/12349"
         },
@@ -242,7 +248,6 @@ def seed_test_data(db: Session = Depends(get_db)):
             "personal_best_pace": None,
             "personal_attempts": 0,
             "overall_attempts": 45,
-            "difficulty": 4,
             "last_attempt_date": "10/6/2025",
             "strava_url": "https://www.strava.com/segments/12350"
         },
@@ -259,7 +264,6 @@ def seed_test_data(db: Session = Depends(get_db)):
             "personal_best_pace": None,
             "personal_attempts": 0,
             "overall_attempts": 25,
-            "difficulty": 6,
             "last_attempt_date": "11/29/2024",
             "strava_url": "https://www.strava.com/segments/12351"
         },
@@ -276,7 +280,6 @@ def seed_test_data(db: Session = Depends(get_db)):
             "personal_best_pace": None,
             "personal_attempts": 0,
             "overall_attempts": 88,
-            "difficulty": 9,
             "last_attempt_date": "8/15/2024",
             "strava_url": "https://www.strava.com/segments/12352"
         }
@@ -490,9 +493,69 @@ def strava_auth_status(db: Session = Depends(get_db)):
         # Check if token is still valid
         token = get_valid_access_token(user, db)
         if token:
-            return schemas.StravaAuthStatus(connected=True, athlete_name=None)
+            # Try to get athlete name
+            athlete_name = None
+            try:
+                import httpx
+                response = httpx.get(
+                    "https://www.strava.com/api/v3/athlete",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=5.0
+                )
+                if response.status_code == 200:
+                    athlete_data = response.json()
+                    athlete_name = athlete_data.get("firstname", "") + " " + athlete_data.get("lastname", "")
+                    athlete_name = athlete_name.strip()
+            except Exception:
+                pass  # If we can't get athlete name, just return connected=True
+            
+            return schemas.StravaAuthStatus(connected=True, athlete_name=athlete_name)
     
     return schemas.StravaAuthStatus(connected=False)
+
+
+@app.get("/auth/strava/athlete")
+async def get_athlete_info(db: Session = Depends(get_db)):
+    """Get authenticated athlete information from Strava"""
+    user = db.query(models.User).first()
+    
+    if not user or not user.strava_access_token:
+        raise HTTPException(status_code=401, detail="Not authenticated with Strava")
+    
+    access_token = await get_valid_access_token_async(user, db)
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Strava authentication expired. Please reconnect.")
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://www.strava.com/api/v3/athlete",
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=10.0
+            )
+            
+            if response.status_code != 200:
+                if response.status_code == 401:
+                    raise HTTPException(status_code=401, detail="Strava authentication expired. Please reconnect.")
+                raise HTTPException(status_code=response.status_code, detail="Failed to fetch athlete info")
+            
+            athlete_data = response.json()
+            firstname = athlete_data.get("firstname", "")
+            lastname = athlete_data.get("lastname", "")
+            athlete_name = f"{firstname} {lastname}".strip()
+            
+            return {
+                "athlete_name": athlete_name,
+                "athlete_id": athlete_data.get("id"),
+                "firstname": firstname,
+                "lastname": lastname
+            }
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            raise HTTPException(status_code=401, detail="Strava authentication expired. Please reconnect.")
+        raise HTTPException(status_code=e.response.status_code, detail=f"Strava API error: {e.response.text[:200]}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching athlete info: {str(e)}")
 
 
 @app.post("/auth/strava/disconnect")
@@ -516,10 +579,22 @@ async def fetch_segment_times_from_strava(segment_id: int, access_token: str) ->
         segment_response = await client.get(
             f"https://www.strava.com/api/v3/segments/{segment_id}",
             headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10.0
         )
         
         if segment_response.status_code != 200:
-            raise HTTPException(status_code=404, detail="Segment not found")
+            if segment_response.status_code == 404:
+                raise HTTPException(status_code=404, detail="Segment not found")
+            elif segment_response.status_code == 401:
+                raise HTTPException(status_code=401, detail="Strava authentication expired. Please reconnect your Strava account.")
+            elif segment_response.status_code == 429:
+                raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again in a few minutes.")
+            else:
+                error_text = segment_response.text[:200] if segment_response.text else "Unknown error"
+                raise HTTPException(
+                    status_code=segment_response.status_code, 
+                    detail=f"Strava API error ({segment_response.status_code}): {error_text}"
+                )
         
         segment_data = segment_response.json()
         segment_name = segment_data.get("name", "")
@@ -650,6 +725,25 @@ async def fetch_segment_times_from_strava(segment_id: int, access_token: str) ->
                     except:
                         pass
         
+        # Get polyline and start coordinates from segment data
+        polyline = None
+        start_latitude = None
+        start_longitude = None
+        
+        try:
+            segment_response = await client.get(
+                f"https://www.strava.com/api/v3/segments/{segment_id}",
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=10.0
+            )
+            if segment_response.status_code == 200:
+                segment_data = segment_response.json()
+                polyline = segment_data.get("polyline")
+                start_latitude = segment_data.get("start_latitude")
+                start_longitude = segment_data.get("start_longitude")
+        except Exception:
+            pass  # If we can't get polyline, continue without it
+        
         return schemas.StravaSegmentTime(
             segment_id=segment_id,
             segment_name=segment_name,
@@ -659,6 +753,9 @@ async def fetch_segment_times_from_strava(segment_id: int, access_token: str) ->
             personal_attempts=personal_attempts if personal_attempts > 0 else None,
             last_attempt_date=last_attempt_date,
             personal_best_activity_id=personal_best_activity_id,
+            polyline=polyline,
+            start_latitude=start_latitude,
+            start_longitude=start_longitude,
             crown_holder=crown_holder,
             crown_time=crown_time,
             crown_date=crown_date,
@@ -668,7 +765,7 @@ async def fetch_segment_times_from_strava(segment_id: int, access_token: str) ->
 
 @app.get("/strava/segments/{segment_id}/times", response_model=schemas.StravaSegmentTime)
 async def get_segment_times(segment_id: int, db: Session = Depends(get_db)):
-    """Get personal best time for a segment from Strava"""
+    """Get personal best time for a segment from Strava, with database fallback for rate limits"""
     user = db.query(models.User).first()
     
     if not user or not user.strava_access_token:
@@ -678,18 +775,72 @@ async def get_segment_times(segment_id: int, db: Session = Depends(get_db)):
     if not access_token:
         raise HTTPException(status_code=401, detail="Invalid Strava token. Please reconnect.")
     
+    # Get database data as fallback
+    db_item = db.query(models.Item).filter(models.Item.strava_segment_id == segment_id).first()
+    
+    # Log which segment we're trying to fetch
+    print(f"Fetching segment times for segment_id: {segment_id}")
+    
     try:
         return await fetch_segment_times_from_strava(segment_id, access_token)
-    except HTTPException:
+    except HTTPException as e:
+        # For rate limits (429), return database data if available
+        if e.status_code == 429 and db_item:
+            print(f"Rate limit hit for segment {segment_id}, returning database data")
+            return schemas.StravaSegmentTime(
+                segment_id=segment_id,
+                segment_name=db_item.segment_name or "",
+                personal_best_time=db_item.personal_best_time,
+                personal_best_pace=db_item.personal_best_pace,
+                personal_best_grade_adjusted_pace=None,  # Not stored in DB
+                personal_attempts=db_item.personal_attempts if db_item.personal_attempts else None,
+                last_attempt_date=db_item.last_attempt_date,
+                personal_best_activity_id=None,  # Not stored in DB
+                polyline=db_item.polyline,
+                start_latitude=db_item.start_latitude,
+                start_longitude=db_item.start_longitude,
+                crown_holder=db_item.crown_holder,
+                crown_time=db_item.crown_time,
+                crown_date=db_item.crown_date,
+                crown_pace=db_item.crown_pace,
+            )
+        # For auth errors, still raise
+        if e.status_code == 401:
+            raise
+        # Log the error for debugging
+        print(f"HTTPException fetching segment {segment_id}: {e.status_code} - {e.detail}")
         raise
     except httpx.HTTPStatusError as e:
+        print(f"HTTPStatusError fetching segment {segment_id}: {e.response.status_code} - {e.response.text[:200]}")
+        # For rate limits, return database data if available
+        if e.response.status_code == 429 and db_item:
+            print(f"Rate limit hit for segment {segment_id}, returning database data")
+            return schemas.StravaSegmentTime(
+                segment_id=segment_id,
+                segment_name=db_item.segment_name or "",
+                personal_best_time=db_item.personal_best_time,
+                personal_best_pace=db_item.personal_best_pace,
+                personal_best_grade_adjusted_pace=None,
+                personal_attempts=db_item.personal_attempts if db_item.personal_attempts else None,
+                last_attempt_date=db_item.last_attempt_date,
+                personal_best_activity_id=None,
+                polyline=db_item.polyline,
+                start_latitude=db_item.start_latitude,
+                start_longitude=db_item.start_longitude,
+                crown_holder=db_item.crown_holder,
+                crown_time=db_item.crown_time,
+                crown_date=db_item.crown_date,
+                crown_pace=db_item.crown_pace,
+            )
         if e.response.status_code == 401:
             raise HTTPException(status_code=401, detail="Strava token expired. Please reconnect.")
-        raise HTTPException(status_code=e.response.status_code, detail=f"Strava API error: {e.response.text}")
+        elif e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"Segment {segment_id} not found on Strava. It may have been deleted or made private.")
+        raise HTTPException(status_code=e.response.status_code, detail=f"Strava API error ({e.response.status_code}): {e.response.text[:200]}")
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
-        print(f"Error fetching segment times: {error_trace}")
+        print(f"Error fetching segment times for {segment_id}: {error_trace}")
         raise HTTPException(status_code=500, detail=f"Error fetching segment data: {str(e)}")
 
 
@@ -735,6 +886,42 @@ async def get_segment_metadata(segment_id: int, db: Session = Depends(get_db)):
             elevation_low = segment_data.get("elevation_low", 0)
             elevation_gain_meters = elevation_high - elevation_low if elevation_high > elevation_low else 0
             elevation_gain_feet = elevation_gain_meters * 3.28084 if elevation_gain_meters > 0 else None
+            
+            # Get polyline and start coordinates for map display
+            # Strava API may return polyline in different formats:
+            # 1. Direct "polyline" field
+            # 2. Inside "map" object as "polyline" or "summary_polyline"
+            polyline = segment_data.get("polyline")
+            if not polyline or (isinstance(polyline, str) and polyline.strip() == ""):
+                map_obj = segment_data.get("map", {})
+                polyline = map_obj.get("polyline") or map_obj.get("summary_polyline")
+                # Convert empty strings to None
+                if polyline and isinstance(polyline, str) and polyline.strip() == "":
+                    polyline = None
+            
+            # Strava may return coordinates as:
+            # 1. Separate "start_latitude" and "start_longitude" fields
+            # 2. "start_latlng" array [latitude, longitude]
+            start_latitude = segment_data.get("start_latitude")
+            start_longitude = segment_data.get("start_longitude")
+            
+            if not start_latitude or not start_longitude:
+                start_latlng = segment_data.get("start_latlng")
+                if start_latlng and isinstance(start_latlng, list) and len(start_latlng) >= 2:
+                    start_latitude = start_latlng[0]
+                    start_longitude = start_latlng[1]
+            
+            # Convert to None if invalid (must be valid float/int and within valid lat/lng ranges)
+            if start_latitude is not None:
+                if not isinstance(start_latitude, (int, float)) or not (-90 <= start_latitude <= 90):
+                    start_latitude = None
+            if start_longitude is not None:
+                if not isinstance(start_longitude, (int, float)) or not (-180 <= start_longitude <= 180):
+                    start_longitude = None
+            
+            # Log for debugging
+            print(f"Segment {segment_id} map data: polyline={'present' if polyline else 'missing'}, "
+                  f"start_lat={start_latitude}, start_lng={start_longitude}")
             
             # Note: Strava deprecated the leaderboard API in 2020, so crown/KOM information
             # is no longer available via the API. Users must manually enter this information
@@ -792,17 +979,33 @@ async def get_segment_metadata(segment_id: int, db: Session = Depends(get_db)):
                 # Crown information will remain None and can be manually entered
                 pass
             
-            return schemas.StravaSegmentMetadata(
+            metadata = schemas.StravaSegmentMetadata(
                 segment_id=segment_id,
                 segment_name=segment_data.get("name", ""),
                 distance=round(distance_miles, 2) if distance_miles else None,
                 elevation_gain=round(elevation_gain_feet, 1) if elevation_gain_feet else None,
                 strava_url=f"https://www.strava.com/segments/{segment_id}",
+                polyline=polyline,
+                start_latitude=start_latitude,
+                start_longitude=start_longitude,
                 crown_holder=crown_holder,
                 crown_time=crown_time,
                 crown_date=crown_date,
                 crown_pace=crown_pace,
             )
+            
+            # Update existing segment in database with polyline data if it exists
+            existing_item = db.query(models.Item).filter(
+                models.Item.strava_segment_id == segment_id
+            ).first()
+            
+            if existing_item:
+                existing_item.polyline = polyline
+                existing_item.start_latitude = start_latitude
+                existing_item.start_longitude = start_longitude
+                db.commit()
+            
+            return metadata
             
     except HTTPException:
         raise

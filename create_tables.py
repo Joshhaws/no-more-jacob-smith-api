@@ -69,7 +69,6 @@ try:
                 "personal_best_pace": "12:17",
                 "personal_attempts": 1,
                 "overall_attempts": 6,
-                "difficulty": 7,
                 "last_attempt_date": "7/3/2025",
                 "strava_url": "https://www.strava.com/segments/12345"
             },
@@ -86,7 +85,6 @@ try:
                 "personal_best_pace": "9:07",
                 "personal_attempts": 5,
                 "overall_attempts": 111,
-                "difficulty": 6,
                 "last_attempt_date": "4/22/2025",
                 "strava_url": "https://www.strava.com/segments/12346"
             },
@@ -103,7 +101,6 @@ try:
                 "personal_best_pace": None,
                 "personal_attempts": 0,
                 "overall_attempts": 10,
-                "difficulty": 8,
                 "last_attempt_date": "11/28/2025",
                 "strava_url": "https://www.strava.com/segments/12347"
             },
@@ -120,7 +117,6 @@ try:
                 "personal_best_pace": None,
                 "personal_attempts": 0,
                 "overall_attempts": 30,
-                "difficulty": 5,
                 "last_attempt_date": "11/9/2024",
                 "strava_url": "https://www.strava.com/segments/12348"
             },
@@ -137,7 +133,6 @@ try:
                 "personal_best_pace": None,
                 "personal_attempts": 0,
                 "overall_attempts": 1129,
-                "difficulty": 1,
                 "last_attempt_date": "12/8/2025",
                 "strava_url": "https://www.strava.com/segments/12349"
             },
@@ -154,7 +149,6 @@ try:
                 "personal_best_pace": None,
                 "personal_attempts": 0,
                 "overall_attempts": 45,
-                "difficulty": 4,
                 "last_attempt_date": "10/6/2025",
                 "strava_url": "https://www.strava.com/segments/12350"
             },
@@ -171,7 +165,6 @@ try:
                 "personal_best_pace": None,
                 "personal_attempts": 0,
                 "overall_attempts": 25,
-                "difficulty": 6,
                 "last_attempt_date": "11/29/2024",
                 "strava_url": "https://www.strava.com/segments/12351"
             },
@@ -188,7 +181,6 @@ try:
                 "personal_best_pace": None,
                 "personal_attempts": 0,
                 "overall_attempts": 88,
-                "difficulty": 9,
                 "last_attempt_date": "8/15/2024",
                 "strava_url": "https://www.strava.com/segments/12352"
             }

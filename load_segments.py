@@ -147,7 +147,6 @@ async def fetch_segment_metadata(segment_id: int, access_token: str):
                 "personal_best_pace": None,
                 "personal_attempts": 0,
                 "overall_attempts": 0,
-                "difficulty": None,
                 "last_attempt_date": None,
                 "dibs": None,
             }, None

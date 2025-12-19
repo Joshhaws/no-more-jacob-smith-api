@@ -33,9 +33,12 @@ class Item(Base):
     personal_best_pace = Column(String, nullable=True)  # format: MM:SS per mile
     personal_attempts = Column(Integer, default=0)
     overall_attempts = Column(Integer, default=0)
-    difficulty = Column(Integer, nullable=True)
     last_attempt_date = Column(String, nullable=True)
     strava_url = Column(String, nullable=True)
     strava_segment_id = Column(Integer, nullable=True, index=True)  # Extract from URL for API calls
     dibs = Column(String, nullable=True)  # Person who claimed this segment
+    completed = Column(Boolean, default=False, nullable=False, index=True)  # Whether segment is completed
+    polyline = Column(String, nullable=True)  # Encoded polyline for map display
+    start_latitude = Column(Float, nullable=True)  # Start point latitude
+    start_longitude = Column(Float, nullable=True)  # Start point longitude
 
