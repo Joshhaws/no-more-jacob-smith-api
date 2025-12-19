@@ -1,6 +1,8 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
@@ -10,12 +12,24 @@ from database import SessionLocal, engine
 import httpx
 from datetime import datetime, timedelta
 import re
+import secrets
 
 # Create database tables
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Strava Segment Tracker API", version="1.0.0")
 
+# Generate a secret key for sessions (in production, use a fixed secret from env)
+SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", secrets.token_urlsafe(32))
+
+# Add session middleware (must be added before CORS)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET_KEY,
+    max_age=86400 * 30,  # 30 days
+    same_site="lax",
+    https_only=False,  # Set to True in production with HTTPS
+)
 
 # Note: Database tables are created automatically on startup.
 # To seed test data, use the /seed/ endpoint or run create_tables.py
@@ -43,6 +57,25 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# Dependency to get current user from session
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> Optional[models.User]:
+    """Get the current authenticated user from session"""
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return None
+    
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    return user
+
+
+# Dependency to require authentication
+def require_auth(current_user: Optional[models.User] = Depends(get_current_user)) -> models.User:
+    """Require authentication - raises 401 if not authenticated"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return current_user
 
 
 @app.get("/")
@@ -431,7 +464,7 @@ def strava_authorize():
 
 
 @app.get("/auth/strava/callback")
-async def strava_callback(code: str, db: Session = Depends(get_db)):
+async def strava_callback(code: str, request: Request, db: Session = Depends(get_db)):
     """Handle Strava OAuth callback"""
     if not STRAVA_CLIENT_ID or not STRAVA_CLIENT_SECRET:
         raise HTTPException(status_code=500, detail="Strava credentials not configured")
@@ -473,8 +506,13 @@ async def strava_callback(code: str, db: Session = Depends(get_db)):
             user.updated_at = datetime.utcnow()
             db.commit()
             
+            # Set user ID in session
+            request.session["user_id"] = user.id
+            request.session["strava_id"] = strava_id
+            
             # Redirect to frontend with success
-            return RedirectResponse(url=f"{frontend_url}?strava_connected=true")
+            redirect_response = RedirectResponse(url=f"{frontend_url}?strava_connected=true")
+            return redirect_response
             
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=400, detail=f"Strava API error: {e.response.text}")
@@ -483,15 +521,15 @@ async def strava_callback(code: str, db: Session = Depends(get_db)):
 
 
 @app.get("/auth/strava/status", response_model=schemas.StravaAuthStatus)
-def strava_auth_status(db: Session = Depends(get_db)):
-    """Check Strava connection status"""
-    # For now, return the first user's status (single user app)
-    # In production, you'd use session/auth to identify the user
-    user = db.query(models.User).first()
+def strava_auth_status(current_user: Optional[models.User] = Depends(get_current_user)):
+    """Check Strava connection status for current user"""
+    if not current_user or not current_user.strava_access_token:
+        return schemas.StravaAuthStatus(connected=False)
     
-    if user and user.strava_access_token:
-        # Check if token is still valid
-        token = get_valid_access_token(user, db)
+    # Check if token is still valid
+    db = next(get_db())
+    try:
+        token = get_valid_access_token(current_user, db)
         if token:
             # Try to get athlete name
             athlete_name = None
@@ -510,19 +548,19 @@ def strava_auth_status(db: Session = Depends(get_db)):
                 pass  # If we can't get athlete name, just return connected=True
             
             return schemas.StravaAuthStatus(connected=True, athlete_name=athlete_name)
+    finally:
+        db.close()
     
     return schemas.StravaAuthStatus(connected=False)
 
 
 @app.get("/auth/strava/athlete")
-async def get_athlete_info(db: Session = Depends(get_db)):
+async def get_athlete_info(current_user: models.User = Depends(require_auth), db: Session = Depends(get_db)):
     """Get authenticated athlete information from Strava"""
-    user = db.query(models.User).first()
-    
-    if not user or not user.strava_access_token:
+    if not current_user.strava_access_token:
         raise HTTPException(status_code=401, detail="Not authenticated with Strava")
     
-    access_token = await get_valid_access_token_async(user, db)
+    access_token = await get_valid_access_token_async(current_user, db)
     if not access_token:
         raise HTTPException(status_code=401, detail="Strava authentication expired. Please reconnect.")
     
@@ -764,14 +802,12 @@ async def fetch_segment_times_from_strava(segment_id: int, access_token: str) ->
 
 
 @app.get("/strava/segments/{segment_id}/times", response_model=schemas.StravaSegmentTime)
-async def get_segment_times(segment_id: int, db: Session = Depends(get_db)):
+async def get_segment_times(segment_id: int, current_user: models.User = Depends(require_auth), db: Session = Depends(get_db)):
     """Get personal best time for a segment from Strava, with database fallback for rate limits"""
-    user = db.query(models.User).first()
-    
-    if not user or not user.strava_access_token:
+    if not current_user.strava_access_token:
         raise HTTPException(status_code=401, detail="Strava not connected")
     
-    access_token = await get_valid_access_token_async(user, db)
+    access_token = await get_valid_access_token_async(current_user, db)
     if not access_token:
         raise HTTPException(status_code=401, detail="Invalid Strava token. Please reconnect.")
     
@@ -845,15 +881,12 @@ async def get_segment_times(segment_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/strava/segments/{segment_id}/metadata", response_model=schemas.StravaSegmentMetadata)
-async def get_segment_metadata(segment_id: int, db: Session = Depends(get_db)):
+async def get_segment_metadata(segment_id: int, current_user: models.User = Depends(require_auth), db: Session = Depends(get_db)):
     """Get segment metadata (name, distance, elevation, crown info) from Strava"""
-    # Require Strava authentication
-    user = db.query(models.User).first()
-    
-    if not user or not user.strava_access_token:
+    if not current_user.strava_access_token:
         raise HTTPException(status_code=401, detail="Strava authentication required. Please connect your Strava account.")
     
-    access_token = await get_valid_access_token_async(user, db)
+    access_token = await get_valid_access_token_async(current_user, db)
     if not access_token:
         raise HTTPException(status_code=401, detail="Invalid Strava token. Please reconnect your Strava account.")
     

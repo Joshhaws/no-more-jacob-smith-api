@@ -285,3 +285,4 @@ if __name__ == "__main__":
     
     asyncio.run(fetch_map_data_for_segments(segment_ids))
 
+
